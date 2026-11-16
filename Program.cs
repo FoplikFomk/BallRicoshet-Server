@@ -18,20 +18,25 @@ app.Map("/ws", async (HttpContext context) =>
     {
         var webSocket = await context.WebSockets.AcceptWebSocketAsync();
         var playerId = Guid.NewGuid().ToString();
-        
+        var opponentId = ""; // ВАЖНО: объявляем здесь
+
         clients.TryAdd(playerId, webSocket);
         players.TryAdd(playerId, new PlayerState { X = 250, Y = 540 });
-        string opponentId = "";
-        
+
         lock (waitingPlayer)
         {
-            if (string.IsNullOrEmpty(waitingPlayer)) waitingPlayer = playerId;
+            if (string.IsNullOrEmpty(waitingPlayer))
+            {
+                waitingPlayer = playerId;
+            }
             else
             {
                 opponentId = waitingPlayer;
-                waitingPlayer = ""; 
+                waitingPlayer = "";
+                // Отправляем ID друг другу
                 _ = SendMessage(clients[opponentId], $"MATCH_FOUND:{playerId}");
                 _ = SendMessage(clients[playerId], $"MATCH_FOUND:{opponentId}");
+                Console.WriteLine($"Матч: {opponentId} vs {playerId}");
             }
         }
 
@@ -43,22 +48,24 @@ app.Map("/ws", async (HttpContext context) =>
 
             var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
             
-            // Движение
             if (message.StartsWith("MOVE:"))
             {
-                var parts = message.Split(':', 3); // ТРОЙКА
+                var parts = message.Split(':');
                 if (parts.Length >= 3 && float.TryParse(parts[1], out float x) && float.TryParse(parts[2], out float y))
                 {
                     players[playerId].X = x;
                     players[playerId].Y = y;
+                    
+                    // Пересылаем сопернику
                     if (!string.IsNullOrEmpty(opponentId) && clients.TryGetValue(opponentId, out var oppSocket) && oppSocket.State == WebSocketState.Open)
+                    {
                         _ = SendMessage(oppSocket, $"POS:{x}:{y}");
+                    }
                 }
             }
-            // Получение урона
             else if (message.StartsWith("HIT:"))
             {
-                var parts = message.Split(':', 3); // ТРОЙКА
+                var parts = message.Split(':',3);
                 if (parts.Length >= 3 && float.TryParse(parts[2], out float damage))
                 {
                     var targetId = parts[1];
