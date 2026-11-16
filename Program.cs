@@ -53,7 +53,7 @@ app.Map("/ws", async (HttpContext context) =>
             // Если это пересылка пакета (начинается с RELAY:)
             if (message.StartsWith("RELAY:"))
             {
-                var parts = message.Split(':');
+                var parts = message.Split(':', 3);
                 var targetId = parts[1];
                 if (clients.TryGetValue(targetId, out var targetSocket) && targetSocket.State == WebSocketState.Open)
                 {
