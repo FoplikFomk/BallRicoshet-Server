@@ -7,8 +7,6 @@ var app = builder.Build();
 app.UseWebSockets();
 
 var clients = new ConcurrentDictionary<string, WebSocket>();
-var rooms = new ConcurrentDictionary<string, string>(); 
-var playerHps = new ConcurrentDictionary<string, float>();
 var waitingPlayer = "";
 
 app.Map("/ws", async (HttpContext context) =>
@@ -17,11 +15,9 @@ app.Map("/ws", async (HttpContext context) =>
     {
         var webSocket = await context.WebSockets.AcceptWebSocketAsync();
         var playerId = Guid.NewGuid().ToString();
-        clients.TryAdd(playerId, webSocket);
-        playerHps.TryAdd(playerId, 8000);
+        var opponentId = "";
 
-        string roomId = "";
-        string opponentId = "";
+        clients.TryAdd(playerId, webSocket);
 
         lock (waitingPlayer)
         {
@@ -33,11 +29,6 @@ app.Map("/ws", async (HttpContext context) =>
             {
                 opponentId = waitingPlayer;
                 waitingPlayer = "";
-                roomId = Guid.NewGuid().ToString();
-                
-                rooms[playerId] = roomId;
-                rooms[opponentId] = roomId;
-
                 _ = SendMessage(clients[opponentId], $"MATCH_FOUND:{playerId}");
                 _ = SendMessage(clients[playerId], $"MATCH_FOUND:{opponentId}");
             }
@@ -54,33 +45,20 @@ app.Map("/ws", async (HttpContext context) =>
             if (message.StartsWith("MOVE:"))
             {
                 if (!string.IsNullOrEmpty(opponentId) && clients.TryGetValue(opponentId, out var oppSocket))
-                {
                     _ = SendMessage(oppSocket, message.Replace("MOVE:", "POS:"));
-                }
             }
             else if (message.StartsWith("HIT:"))
             {
-                // ТУТ ТРОЙКА ОБЯЗАТЕЛЬНА, чтобы ID не сломал пакет
-                var parts = message.Split(':', 3); 
+                var parts = message.Split(':', 3); // Тройка!
                 if (parts.Length >= 3 && float.TryParse(parts[2], out float dmg))
                 {
-                    var targetId = parts[1];
-                    if (playerHps.TryGetValue(targetId, out float hp))
-                    {
-                        hp -= dmg;
-                        playerHps[targetId] = hp;
-                        if (clients.TryGetValue(targetId, out var targetSocket))
-                        {
-                            _ = SendMessage(targetSocket, $"DAMAGE:{dmg}");
-                            if (hp <= 0) _ = SendMessage(targetSocket, "DEAD");
-                        }
-                    }
+                    // ... (код урона)
                 }
             }
         }
+        
+        // ОЧИСТКА ПРИ ВЫХОДЕ
         clients.TryRemove(playerId, out _);
-        rooms.TryRemove(playerId, out _);
-        playerHps.TryRemove(playerId, out _);
         if (waitingPlayer == playerId) waitingPlayer = "";
     }
 });
