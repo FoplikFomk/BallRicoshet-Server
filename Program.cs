@@ -7,7 +7,7 @@ var app = builder.Build();
 app.UseWebSockets();
 
 var clients = new ConcurrentDictionary<string, WebSocket>();
-var rooms = new ConcurrentDictionary<string, string>(); // ID -> RoomID
+var rooms = new ConcurrentDictionary<string, string>(); 
 var playerHps = new ConcurrentDictionary<string, float>();
 var waitingPlayer = "";
 
@@ -60,8 +60,8 @@ app.Map("/ws", async (HttpContext context) =>
             }
             else if (message.StartsWith("HIT:"))
             {
-                // Формат: HIT:ID:урон
-                var parts = message.Split(':');
+                // ТУТ ТРОЙКА ОБЯЗАТЕЛЬНА, чтобы ID не сломал пакет
+                var parts = message.Split(':', 3); 
                 if (parts.Length >= 3 && float.TryParse(parts[2], out float dmg))
                 {
                     var targetId = parts[1];
