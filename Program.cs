@@ -1,4 +1,4 @@
-﻿using LiteNetLib;
+using LiteNetLib;
 using LiteNetLib.Utils;
 using System;
 using System.Collections.Generic;
@@ -9,7 +9,7 @@ namespace BallRicoshet.Server;
 
 public class Server : INetEventListener
 {
-    private NetManager _netManager;
+    private NetManager? _netManager;
     private List<NetPeer> _players = new();
 
     public void Start()
@@ -19,7 +19,7 @@ public class Server : INetEventListener
         Console.WriteLine("Сервер запущен на порту 9050!");
     }
 
-    public void Update() => _netManager.PollEvents();
+    public void Update() => _netManager?.PollEvents();
 
     public void OnConnectionRequest(ConnectionRequest request)
     {
@@ -28,7 +28,7 @@ public class Server : INetEventListener
 
     public void OnPeerConnected(NetPeer peer)
     {
-        Console.WriteLine($"Игрок подключился: {peer.EndPoint}");
+        Console.WriteLine($"Игрок подключился: {peer.Address}");
         _players.Add(peer);
 
         if (_players.Count == 2)
@@ -38,12 +38,12 @@ public class Server : INetEventListener
 
             var writer = new NetDataWriter();
             writer.Put("MATCH_FOUND");
-            writer.Put(p2.EndPoint.Address.ToString());
+            writer.Put(p2.Address.ToString());
             p1.Send(writer, DeliveryMethod.ReliableOrdered);
 
             writer = new NetDataWriter();
             writer.Put("MATCH_FOUND");
-            writer.Put(p1.EndPoint.Address.ToString());
+            writer.Put(p1.Address.ToString());
             p2.Send(writer, DeliveryMethod.ReliableOrdered);
 
             _players.Clear();
