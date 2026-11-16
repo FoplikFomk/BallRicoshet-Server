@@ -4,12 +4,16 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
-
 app.UseWebSockets();
 
-// Список подключенных игроков
 var clients = new ConcurrentDictionary<string, WebSocket>();
+var players = new ConcurrentDictionary<string, PlayerState>();
 var waitingPlayer = "";
+
+class PlayerState
+{
+    public float X, Y, Hp = 8000;
+}
 
 app.Map("/ws", async (HttpContext context) =>
 {
@@ -19,9 +23,10 @@ app.Map("/ws", async (HttpContext context) =>
         var playerId = Guid.NewGuid().ToString();
         
         clients.TryAdd(playerId, webSocket);
-        Console.WriteLine($"Игрок {playerId} подключился.");
+        players.TryAdd(playerId, new PlayerState { X = 250, Y = 540 }); // Стартовая позиция
 
-        // Логика подбора
+        string opponentId = "";
+        
         lock (waitingPlayer)
         {
             if (string.IsNullOrEmpty(waitingPlayer))
@@ -30,18 +35,18 @@ app.Map("/ws", async (HttpContext context) =>
             }
             else
             {
-                var p1 = waitingPlayer;
-                var p2 = playerId;
-                waitingPlayer = ""; // Очищаем
+                opponentId = waitingPlayer;
+                waitingPlayer = ""; 
 
-                // Отправляем обоим сообщение, что игра найдена
-                SendMessage(clients[p1], $"MATCH_FOUND:{p2}");
-                SendMessage(clients[p2], $"MATCH_FOUND:{p1}");
-                Console.WriteLine($"Матч найден: {p1} vs {p2}");
+                // Отправляем MATCH_FOUND первому игроку
+                _ = SendMessage(clients[opponentId], $"MATCH_FOUND:{playerId}");
+                // Отправляем MATCH_FOUND второму игроку
+                _ = SendMessage(clients[playerId], $"MATCH_FOUND:{opponentId}");
+                
+                Console.WriteLine($"Матч найден: {opponentId} vs {playerId}");
             }
         }
 
-        // Прием сообщений (пересылка)
         var buffer = new byte[1024 * 4];
         while (webSocket.State == WebSocketState.Open)
         {
@@ -50,23 +55,46 @@ app.Map("/ws", async (HttpContext context) =>
 
             var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
             
-            // Если это пересылка пакета (начинается с RELAY:)
-            if (message.StartsWith("RELAY:"))
+            // Получаем пакет от клиента (движение)
+            if (message.StartsWith("MOVE:"))
             {
                 var parts = message.Split(':', 3);
-                var targetId = parts[1];
-                if (clients.TryGetValue(targetId, out var targetSocket) && targetSocket.State == WebSocketState.Open)
+                if (parts.Length >= 3 && float.TryParse(parts[1], out float x) && float.TryParse(parts[2], out float y))
                 {
-                    // Пересылаем пакет целиком (без приставки RELAY)
-                    var payload = Encoding.UTF8.GetBytes(parts[2]);
-                    await targetSocket.SendAsync(new ArraySegment<byte>(payload), WebSocketMessageType.Text, true, CancellationToken.None);
+                    players[playerId].X = x;
+                    players[playerId].Y = y;
+
+                    // Пересылаем позицию сопернику
+                    if (!string.IsNullOrEmpty(opponentId) && clients.TryGetValue(opponentId, out var oppSocket) && oppSocket.State == WebSocketState.Open)
+                    {
+                        _ = SendMessage(oppSocket, $"POS:{x}:{y}");
+                    }
+                }
+            }
+            // Получаем пакет о выстреле (попадании)
+            else if (message.StartsWith("HIT:"))
+            {
+                // HIT:ID_соперника:урон
+                var parts = message.Split(':');
+                if (parts.Length >= 3 && float.TryParse(parts[2], out float damage))
+                {
+                    var targetId = parts[1];
+                    if (players.TryGetValue(targetId, out var target))
+                    {
+                        target.Hp -= damage;
+                        // Говорим цели, что он получил урон
+                        if (clients.TryGetValue(targetId, out var targetSocket) && targetSocket.State == WebSocketState.Open)
+                        {
+                            _ = SendMessage(targetSocket, $"DAMAGE:{damage}");
+                        }
+                    }
                 }
             }
         }
 
         clients.TryRemove(playerId, out _);
+        players.TryRemove(playerId, out _);
         if (waitingPlayer == playerId) waitingPlayer = "";
-        Console.WriteLine($"Игрок {playerId} отключился.");
     }
 });
 
