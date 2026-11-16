@@ -1,35 +1,31 @@
 using System.Collections.Concurrent;
-using System.Net;
 
 var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
 
-// Список игроков в очереди (IP адрес)
-var waitingPlayer = "";
+// Очередь игроков
+var waitingPlayerIp = "";
 
-// Эндпоинт для поиска игры
 app.MapGet("/find_match", (HttpContext context) =>
 {
-    var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "";
+    var ip = context.Connection.RemoteIpAddress?.ToString() ?? "0.0.0.0";
     
-    lock (waitingPlayer)
+    lock (waitingPlayerIp)
     {
-        if (string.IsNullOrEmpty(waitingPlayer))
+        if (string.IsNullOrEmpty(waitingPlayerIp))
         {
-            // Никого нет, этот игрок становится первым в очереди
-            waitingPlayer = clientIp;
+            waitingPlayerIp = ip;
             return Results.Text("WAITING");
         }
         else
         {
-            // Нашли второго игрока!
-            var opponentIp = waitingPlayer;
-            waitingPlayer = ""; // Очищаем очередь
-            
-            // Отдаем IP соперника
-            return Results.Text($"MATCH_FOUND:{opponentIp}");
+            var opponent = waitingPlayerIp;
+            waitingPlayerIp = ""; // Очищаем
+            return Results.Text($"MATCH_FOUND:{opponent}");
         }
     }
 });
 
-app.Run();
+// Запуск на порту, который даст Render
+var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+app.Run($"http://0.0.0.0:{port}");
