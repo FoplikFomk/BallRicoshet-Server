@@ -7,6 +7,8 @@ var app = builder.Build();
 app.UseWebSockets();
 
 var clients = new ConcurrentDictionary<string, WebSocket>();
+var rooms = new ConcurrentDictionary<string, string>(); // ID -> RoomID
+var playerHps = new ConcurrentDictionary<string, float>();
 var waitingPlayer = "";
 
 app.Map("/ws", async (HttpContext context) =>
@@ -15,10 +17,11 @@ app.Map("/ws", async (HttpContext context) =>
     {
         var webSocket = await context.WebSockets.AcceptWebSocketAsync();
         var playerId = Guid.NewGuid().ToString();
-        var opponentId = ""; // Важно: объявляем здесь!
-
         clients.TryAdd(playerId, webSocket);
-        Console.WriteLine($"Игрок {playerId} зашел.");
+        playerHps.TryAdd(playerId, 8000);
+
+        string roomId = "";
+        string opponentId = "";
 
         lock (waitingPlayer)
         {
@@ -29,12 +32,14 @@ app.Map("/ws", async (HttpContext context) =>
             else
             {
                 opponentId = waitingPlayer;
-                waitingPlayer = ""; 
+                waitingPlayer = "";
+                roomId = Guid.NewGuid().ToString();
                 
-                // Отправляем ID друг другу
+                rooms[playerId] = roomId;
+                rooms[opponentId] = roomId;
+
                 _ = SendMessage(clients[opponentId], $"MATCH_FOUND:{playerId}");
                 _ = SendMessage(clients[playerId], $"MATCH_FOUND:{opponentId}");
-                Console.WriteLine($"МАТЧ НАЙДЕН: {opponentId} vs {playerId}");
             }
         }
 
@@ -46,21 +51,37 @@ app.Map("/ws", async (HttpContext context) =>
 
             var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
             
-            // Если пришла позиция
             if (message.StartsWith("MOVE:"))
             {
-                // Пересылаем её сопернику
-                if (!string.IsNullOrEmpty(opponentId) && clients.TryGetValue(opponentId, out var oppSocket) && oppSocket.State == WebSocketState.Open)
+                if (!string.IsNullOrEmpty(opponentId) && clients.TryGetValue(opponentId, out var oppSocket))
                 {
-                    var posMsg = message.Substring(5); // отрезаем "MOVE:"
-                    _ = SendMessage(oppSocket, $"POS:{posMsg}");
+                    _ = SendMessage(oppSocket, message.Replace("MOVE:", "POS:"));
+                }
+            }
+            else if (message.StartsWith("HIT:"))
+            {
+                // Формат: HIT:ID:урон
+                var parts = message.Split(':');
+                if (parts.Length >= 3 && float.TryParse(parts[2], out float dmg))
+                {
+                    var targetId = parts[1];
+                    if (playerHps.TryGetValue(targetId, out float hp))
+                    {
+                        hp -= dmg;
+                        playerHps[targetId] = hp;
+                        if (clients.TryGetValue(targetId, out var targetSocket))
+                        {
+                            _ = SendMessage(targetSocket, $"DAMAGE:{dmg}");
+                            if (hp <= 0) _ = SendMessage(targetSocket, "DEAD");
+                        }
+                    }
                 }
             }
         }
-
         clients.TryRemove(playerId, out _);
+        rooms.TryRemove(playerId, out _);
+        playerHps.TryRemove(playerId, out _);
         if (waitingPlayer == playerId) waitingPlayer = "";
-        Console.WriteLine($"Игрок {playerId} вышел.");
     }
 });
 
