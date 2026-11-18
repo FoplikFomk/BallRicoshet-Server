@@ -168,8 +168,8 @@ static class Lobby
 
 static class GameServer
 {
-    private const float MaxHitDamage = 2500f;   // больше одного попадания быть не может
-    private const float HealPerSecCap = 600f;   // регенерация Прузека 350/сек + запас
+    private const float MaxHitDamage = 10000f;   // Подняли лимит урона (для берсерка и серии)
+private const float HealPerSecCap = 10000f;  // Подняли лимит лечения (для хила Брукса)
 
     public static async Task HandleAsync(WebSocket ws)
     {
